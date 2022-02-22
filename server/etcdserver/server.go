@@ -142,7 +142,6 @@ type ServerV2 interface {
 
 	// Do takes a V2 request and attempts to fulfill it, returning a Response.
 	Do(ctx context.Context, r pb.Request) (Response, error)
-	stats.Stats
 	ClientCertAuthEnabled() bool
 }
 
@@ -292,6 +291,9 @@ type EtcdServer struct {
 	clusterVersionChanged *notify.Notifier
 
 	*AccessController
+	// forceSnapshot can force snapshot be triggered after apply, independent of the snapshotCount.
+	// Should only be set within apply code path. Used to force snapshot after cluster version downgrade.
+	forceSnapshot bool
 }
 
 // NewServer creates a new EtcdServer from the supplied configuration. The
@@ -512,9 +514,7 @@ func (s *EtcdServer) adjustTicks() {
 func (s *EtcdServer) Start() {
 	s.start()
 	s.GoAttach(func() { s.adjustTicks() })
-	// TODO: Switch to publishV3 in 3.6.
-	// Support for cluster_member_set_attr was added in 3.5.
-	s.GoAttach(func() { s.publish(s.Cfg.ReqTimeout()) })
+	s.GoAttach(func() { s.publishV3(s.Cfg.ReqTimeout()) })
 	s.GoAttach(s.purgeFile)
 	s.GoAttach(func() { monitorFileDescriptor(s.Logger(), s.stopping) })
 	s.GoAttach(s.monitorClusterVersions)
@@ -1082,10 +1082,9 @@ func (s *EtcdServer) applyEntries(ep *etcdProgress, apply *apply) {
 }
 
 func (s *EtcdServer) triggerSnapshot(ep *etcdProgress) {
-	if ep.appliedi-ep.snapi <= s.Cfg.SnapshotCount {
+	if !s.shouldSnapshot(ep) {
 		return
 	}
-
 	lg := s.Logger()
 	lg.Info(
 		"triggering snapshot",
@@ -1093,10 +1092,16 @@ func (s *EtcdServer) triggerSnapshot(ep *etcdProgress) {
 		zap.Uint64("local-member-applied-index", ep.appliedi),
 		zap.Uint64("local-member-snapshot-index", ep.snapi),
 		zap.Uint64("local-member-snapshot-count", s.Cfg.SnapshotCount),
+		zap.Bool("snapshot-forced", s.forceSnapshot),
 	)
+	s.forceSnapshot = false
 
 	s.snapshot(ep.appliedi, ep.confState)
 	ep.snapi = ep.appliedi
+}
+
+func (s *EtcdServer) shouldSnapshot(ep *etcdProgress) bool {
+	return (s.forceSnapshot && ep.appliedi != ep.snapi) || (ep.appliedi-ep.snapi > s.Cfg.SnapshotCount)
 }
 
 func (s *EtcdServer) hasMultipleVotingMembers() bool {
@@ -1223,18 +1228,6 @@ func (s *EtcdServer) StopNotify() <-chan struct{} { return s.done }
 // StoppingNotify returns a channel that receives a empty struct
 // when the server is being stopped.
 func (s *EtcdServer) StoppingNotify() <-chan struct{} { return s.stopping }
-
-func (s *EtcdServer) SelfStats() []byte { return s.stats.JSON() }
-
-func (s *EtcdServer) LeaderStats() []byte {
-	lead := s.getLead()
-	if lead != uint64(s.id) {
-		return nil
-	}
-	return s.lstats.JSON()
-}
-
-func (s *EtcdServer) StoreStats() []byte { return s.v2store.JsonStats() }
 
 func (s *EtcdServer) checkMembershipOperationPermission(ctx context.Context) error {
 	if s.authStore == nil {
@@ -1711,70 +1704,6 @@ func (s *EtcdServer) publishV3(timeout time.Duration) {
 	}
 }
 
-// publish registers server information into the cluster. The information
-// is the JSON representation of this server's member struct, updated with the
-// static clientURLs of the server.
-// The function keeps attempting to register until it succeeds,
-// or its server is stopped.
-//
-// Use v2 store to encode member attributes, and apply through Raft
-// but does not go through v2 API endpoint, which means even with v2
-// client handler disabled (e.g. --enable-v2=false), cluster can still
-// process publish requests through rafthttp
-// TODO: Remove in 3.6 (start using publishV3)
-func (s *EtcdServer) publish(timeout time.Duration) {
-	lg := s.Logger()
-	b, err := json.Marshal(s.attributes)
-	if err != nil {
-		lg.Panic("failed to marshal JSON", zap.Error(err))
-		return
-	}
-	req := pb.Request{
-		Method: "PUT",
-		Path:   membership.MemberAttributesStorePath(s.id),
-		Val:    string(b),
-	}
-
-	for {
-		ctx, cancel := context.WithTimeout(s.ctx, timeout)
-		_, err := s.Do(ctx, req)
-		cancel()
-		switch err {
-		case nil:
-			close(s.readych)
-			lg.Info(
-				"published local member to cluster through raft",
-				zap.String("local-member-id", s.ID().String()),
-				zap.String("local-member-attributes", fmt.Sprintf("%+v", s.attributes)),
-				zap.String("request-path", req.Path),
-				zap.String("cluster-id", s.cluster.ID().String()),
-				zap.Duration("publish-timeout", timeout),
-			)
-			return
-
-		case ErrStopped:
-			lg.Warn(
-				"stopped publish because server is stopped",
-				zap.String("local-member-id", s.ID().String()),
-				zap.String("local-member-attributes", fmt.Sprintf("%+v", s.attributes)),
-				zap.Duration("publish-timeout", timeout),
-				zap.Error(err),
-			)
-			return
-
-		default:
-			lg.Warn(
-				"failed to publish local member to cluster through raft",
-				zap.String("local-member-id", s.ID().String()),
-				zap.String("local-member-attributes", fmt.Sprintf("%+v", s.attributes)),
-				zap.String("request-path", req.Path),
-				zap.Duration("publish-timeout", timeout),
-				zap.Error(err),
-			)
-		}
-	}
-}
-
 func (s *EtcdServer) sendMergedSnap(merged snap.Message) {
 	atomic.AddInt64(&s.inflightSnapshots, 1)
 
@@ -1912,6 +1841,9 @@ func (s *EtcdServer) applyEntryNormal(e *raftpb.Entry) {
 
 	id := raftReq.ID
 	if id == 0 {
+		if raftReq.Header == nil {
+			s.lg.Panic("applyEntryNormal, could not find a header")
+		}
 		id = raftReq.Header.ID
 	}
 

@@ -110,6 +110,9 @@ func (p *printerRPC) MemberRemove(id uint64, r v3.MemberRemoveResponse) {
 func (p *printerRPC) MemberUpdate(id uint64, r v3.MemberUpdateResponse) {
 	p.p((*pb.MemberUpdateResponse)(&r))
 }
+func (p *printerRPC) MemberPromote(id uint64, r v3.MemberPromoteResponse) {
+	p.p((*pb.MemberPromoteResponse)(&r))
+}
 func (p *printerRPC) MemberList(r v3.MemberListResponse) { p.p((*pb.MemberListResponse)(&r)) }
 func (p *printerRPC) Alarm(r v3.AlarmResponse)           { p.p((*pb.AlarmResponse)(&r)) }
 func (p *printerRPC) MoveLeader(leader, target uint64, r v3.MoveLeaderResponse) {
@@ -198,7 +201,7 @@ func makeEndpointHealthTable(healthList []epHealth) (hdr []string, rows [][]stri
 }
 
 func makeEndpointStatusTable(statusList []epStatus) (hdr []string, rows [][]string) {
-	hdr = []string{"endpoint", "ID", "version", "db size", "is leader", "is learner", "raft term",
+	hdr = []string{"endpoint", "ID", "version", "db size", "db size in use", "is leader", "is learner", "raft term",
 		"raft index", "raft applied index", "errors"}
 	for _, status := range statusList {
 		rows = append(rows, []string{
@@ -206,6 +209,7 @@ func makeEndpointStatusTable(statusList []epStatus) (hdr []string, rows [][]stri
 			fmt.Sprintf("%x", status.Resp.Header.MemberId),
 			status.Resp.Version,
 			humanize.Bytes(uint64(status.Resp.DbSize)),
+			humanize.Bytes(uint64(status.Resp.DbSizeInUse)),
 			fmt.Sprint(status.Resp.Leader == status.Resp.Header.MemberId),
 			fmt.Sprint(status.Resp.IsLearner),
 			fmt.Sprint(status.Resp.RaftTerm),

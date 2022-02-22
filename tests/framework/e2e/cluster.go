@@ -170,11 +170,23 @@ type EtcdProcessClusterConfig struct {
 	V2deprecation       string
 
 	RollingStart bool
+	Discovery    string
 }
 
 // NewEtcdProcessCluster launches a new cluster from etcd processes, returning
 // a new EtcdProcessCluster once all nodes are ready to accept client requests.
 func NewEtcdProcessCluster(t testing.TB, cfg *EtcdProcessClusterConfig) (*EtcdProcessCluster, error) {
+	epc, err := InitEtcdProcessCluster(t, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return StartEtcdProcessCluster(epc, cfg)
+}
+
+// InitEtcdProcessCluster initializes a new cluster based on the given config.
+// It doesn't start the cluster.
+func InitEtcdProcessCluster(t testing.TB, cfg *EtcdProcessClusterConfig) (*EtcdProcessCluster, error) {
 	SkipInShortMode(t)
 
 	etcdCfgs := cfg.EtcdServerProcessConfigs(t)
@@ -189,20 +201,26 @@ func NewEtcdProcessCluster(t testing.TB, cfg *EtcdProcessClusterConfig) (*EtcdPr
 		proc, err := NewEtcdProcess(etcdCfgs[i])
 		if err != nil {
 			epc.Close()
-			return nil, fmt.Errorf("Cannot configure: %v", err)
+			return nil, fmt.Errorf("cannot configure: %v", err)
 		}
 		epc.Procs[i] = proc
 	}
 
+	return epc, nil
+}
+
+// StartEtcdProcessCluster launches a new cluster from etcd processes.
+func StartEtcdProcessCluster(epc *EtcdProcessCluster, cfg *EtcdProcessClusterConfig) (*EtcdProcessCluster, error) {
 	if cfg.RollingStart {
 		if err := epc.RollingStart(); err != nil {
-			return nil, fmt.Errorf("Cannot rolling-start: %v", err)
+			return nil, fmt.Errorf("cannot rolling-start: %v", err)
 		}
 	} else {
 		if err := epc.Start(); err != nil {
-			return nil, fmt.Errorf("Cannot start: %v", err)
+			return nil, fmt.Errorf("cannot start: %v", err)
 		}
 	}
+
 	return epc, nil
 }
 
@@ -273,7 +291,7 @@ func (cfg *EtcdProcessClusterConfig) EtcdServerProcessConfigs(tb testing.TB) []*
 			"--data-dir", dataDirPath,
 			"--snapshot-count", fmt.Sprintf("%d", cfg.SnapshotCount),
 		}
-		args = AddV2Args(args)
+
 		if cfg.ForceNewCluster {
 			args = append(args, "--force-new-cluster")
 		}
@@ -310,6 +328,10 @@ func (cfg *EtcdProcessClusterConfig) EtcdServerProcessConfigs(tb testing.TB) []*
 			args = append(args, "--v2-deprecation", cfg.V2deprecation)
 		}
 
+		if cfg.Discovery != "" {
+			args = append(args, "--discovery", cfg.Discovery)
+		}
+
 		etcdCfgs[i] = &EtcdServerProcessConfig{
 			lg:           lg,
 			ExecPath:     cfg.ExecPath,
@@ -326,10 +348,12 @@ func (cfg *EtcdProcessClusterConfig) EtcdServerProcessConfigs(tb testing.TB) []*
 		}
 	}
 
-	initialClusterArgs := []string{"--initial-cluster", strings.Join(initialCluster, ",")}
-	for i := range etcdCfgs {
-		etcdCfgs[i].InitialCluster = strings.Join(initialCluster, ",")
-		etcdCfgs[i].Args = append(etcdCfgs[i].Args, initialClusterArgs...)
+	if cfg.Discovery == "" {
+		for i := range etcdCfgs {
+			initialClusterArgs := []string{"--initial-cluster", strings.Join(initialCluster, ",")}
+			etcdCfgs[i].InitialCluster = strings.Join(initialCluster, ",")
+			etcdCfgs[i].Args = append(etcdCfgs[i].Args, initialClusterArgs...)
+		}
 	}
 
 	return etcdCfgs

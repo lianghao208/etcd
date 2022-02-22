@@ -19,13 +19,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"go.etcd.io/etcd/client/pkg/v3/fileutil"
 	"go.etcd.io/etcd/tests/v3/framework/e2e"
 )
 
-func createV2store(t testing.TB, dataDirPath string) {
+func createV2store(t testing.TB, lastReleaseBinary string, dataDirPath string) {
 	t.Log("Creating not-yet v2-deprecated etcd")
 
-	cfg := e2e.ConfigStandalone(e2e.EtcdProcessClusterConfig{EnableV2: true, DataDirPath: dataDirPath, SnapshotCount: 5})
+	cfg := e2e.ConfigStandalone(e2e.EtcdProcessClusterConfig{ExecPath: lastReleaseBinary, EnableV2: true, DataDirPath: dataDirPath, SnapshotCount: 5})
 	epc, err := e2e.NewEtcdProcessCluster(t, cfg)
 	assert.NoError(t, err)
 
@@ -43,25 +44,6 @@ func createV2store(t testing.TB, dataDirPath string) {
 	}
 }
 
-func assertVerifyCanStartV2deprecationNotYet(t testing.TB, dataDirPath string) {
-	t.Log("verify: possible to start etcd with --v2-deprecation=not-yet mode")
-
-	cfg := e2e.ConfigStandalone(e2e.EtcdProcessClusterConfig{EnableV2: true, DataDirPath: dataDirPath, V2deprecation: "not-yet", KeepDataDir: true})
-	epc, err := e2e.NewEtcdProcessCluster(t, cfg)
-	assert.NoError(t, err)
-
-	defer func() {
-		assert.NoError(t, epc.Stop())
-	}()
-
-	if err := e2e.CURLGet(epc, e2e.CURLReq{
-		Endpoint: "/v2/keys/foo",
-		Expected: `{"action":"get","node":{"key":"/foo","value":"bar9","modifiedIndex":13,"createdIndex":13}}`}); err != nil {
-		t.Fatalf("failed get with curl (%v)", err)
-	}
-
-}
-
 func assertVerifyCannotStartV2deprecationWriteOnly(t testing.TB, dataDirPath string) {
 	t.Log("Verify its infeasible to start etcd with --v2-deprecation=write-only mode")
 	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--v2-deprecation=write-only", "--data-dir=" + dataDirPath}, nil)
@@ -71,29 +53,34 @@ func assertVerifyCannotStartV2deprecationWriteOnly(t testing.TB, dataDirPath str
 	assert.NoError(t, err)
 }
 
+func assertVerifyCannotStartV2deprecationNotYet(t testing.TB, dataDirPath string) {
+	t.Log("Verify its infeasible to start etcd with --v2-deprecation=not-yet mode")
+	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--v2-deprecation=not-yet", "--data-dir=" + dataDirPath}, nil)
+	assert.NoError(t, err)
+
+	_, err = proc.Expect(`invalid value "not-yet" for flag -v2-deprecation: invalid value "not-yet"`)
+	assert.NoError(t, err)
+}
+
 func TestV2Deprecation(t *testing.T) {
 	e2e.BeforeTest(t)
 	dataDirPath := t.TempDir()
 
+	lastReleaseBinary := e2e.BinDir + "/etcd-last-release"
+	if !fileutil.Exist(lastReleaseBinary) {
+		t.Skipf("%q does not exist", lastReleaseBinary)
+	}
+
 	t.Run("create-storev2-data", func(t *testing.T) {
-		createV2store(t, dataDirPath)
+		createV2store(t, lastReleaseBinary, dataDirPath)
+	})
+
+	t.Run("--v2-deprecation=not-yet fails", func(t *testing.T) {
+		assertVerifyCannotStartV2deprecationNotYet(t, dataDirPath)
 	})
 
 	t.Run("--v2-deprecation=write-only fails", func(t *testing.T) {
 		assertVerifyCannotStartV2deprecationWriteOnly(t, dataDirPath)
 	})
 
-	t.Run("--v2-deprecation=not-yet succeeds", func(t *testing.T) {
-		assertVerifyCanStartV2deprecationNotYet(t, dataDirPath)
-	})
-
-}
-
-func TestV2DeprecationWriteOnlyNoV2Api(t *testing.T) {
-	e2e.BeforeTest(t)
-	proc, err := e2e.SpawnCmd([]string{e2e.BinDir + "/etcd", "--v2-deprecation=write-only", "--enable-v2"}, nil)
-	assert.NoError(t, err)
-
-	_, err = proc.Expect("--enable-v2 and --v2-deprecation=write-only are mutually exclusive")
-	assert.NoError(t, err)
 }

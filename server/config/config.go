@@ -25,6 +25,7 @@ import (
 	"go.etcd.io/etcd/client/pkg/v3/transport"
 	"go.etcd.io/etcd/client/pkg/v3/types"
 	"go.etcd.io/etcd/pkg/v3/netutil"
+	"go.etcd.io/etcd/server/v3/etcdserver/api/v3discovery"
 	"go.etcd.io/etcd/server/v3/storage/datadir"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 
@@ -34,12 +35,16 @@ import (
 
 // ServerConfig holds the configuration of etcd as taken from the command line or discovery.
 type ServerConfig struct {
-	Name           string
-	DiscoveryURL   string
-	DiscoveryProxy string
-	ClientURLs     types.URLs
-	PeerURLs       types.URLs
-	DataDir        string
+	Name string
+
+	EnableV2Discovery bool
+	DiscoveryURL      string
+	DiscoveryProxy    string
+	DiscoveryCfg      v3discovery.DiscoveryConfig
+
+	ClientURLs types.URLs
+	PeerURLs   types.URLs
+	DataDir    string
 	// DedicatedWALDir config will make the etcd to write the WAL to the WALDir
 	// rather than the dataDir/member/wal.
 	DedicatedWALDir string
@@ -79,6 +84,10 @@ type ServerConfig struct {
 
 	TickMs        uint
 	ElectionTicks int
+
+	// WaitClusterReadyTimeout is the maximum time to wait for the
+	// cluster to be ready on startup before serving client requests.
+	WaitClusterReadyTimeout time.Duration
 
 	// InitialElectionTickAdvance is true, then local member fast-forwards
 	// election ticks to speed up "initial" leader election trigger. This

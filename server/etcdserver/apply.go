@@ -148,15 +148,15 @@ func (a *applierV3backend) Apply(r *pb.InternalRaftRequest, shouldApplyV3 member
 	case r.ClusterVersionSet != nil: // Implemented in 3.5.x
 		op = "ClusterVersionSet"
 		a.s.applyV3Internal.ClusterVersionSet(r.ClusterVersionSet, shouldApplyV3)
-		return nil
+		return ar
 	case r.ClusterMemberAttrSet != nil:
 		op = "ClusterMemberAttrSet" // Implemented in 3.5.x
 		a.s.applyV3Internal.ClusterMemberAttrSet(r.ClusterMemberAttrSet, shouldApplyV3)
-		return nil
+		return ar
 	case r.DowngradeInfoSet != nil:
 		op = "DowngradeInfoSet" // Implemented in 3.5.x
 		a.s.applyV3Internal.DowngradeInfoSet(r.DowngradeInfoSet, shouldApplyV3)
-		return nil
+		return ar
 	}
 
 	if !shouldApplyV3 {
@@ -337,6 +337,8 @@ func (a *applierV3backend) Range(ctx context.Context, txn mvcc.TxnRead, r *pb.Ra
 	resp := &pb.RangeResponse{}
 	resp.Header = &pb.ResponseHeader{}
 
+	lg := a.s.Logger()
+
 	if txn == nil {
 		txn = a.s.kv.Read(mvcc.ConcurrentReadTxMode, trace)
 		defer txn.End()
@@ -407,6 +409,8 @@ func (a *applierV3backend) Range(ctx context.Context, txn mvcc.TxnRead, r *pb.Ra
 			sorter = &kvSortByMod{&kvSort{rr.KVs}}
 		case r.SortTarget == pb.RangeRequest_VALUE:
 			sorter = &kvSortByValue{&kvSort{rr.KVs}}
+		default:
+			lg.Panic("unexpected sort target", zap.Int32("sort-target", int32(r.SortTarget)))
 		}
 		switch {
 		case sortOrder == pb.RangeRequest_ASCEND:
@@ -932,7 +936,20 @@ func (a *applierV3backend) RoleList(r *pb.AuthRoleListRequest) (*pb.AuthRoleList
 }
 
 func (a *applierV3backend) ClusterVersionSet(r *membershippb.ClusterVersionSetRequest, shouldApplyV3 membership.ShouldApplyV3) {
-	a.s.cluster.SetVersion(semver.Must(semver.NewVersion(r.Ver)), api.UpdateCapability, shouldApplyV3)
+	prevVersion := a.s.Cluster().Version()
+	newVersion := semver.Must(semver.NewVersion(r.Ver))
+	a.s.cluster.SetVersion(newVersion, api.UpdateCapability, shouldApplyV3)
+	// Force snapshot after cluster version downgrade.
+	if prevVersion != nil && newVersion.LessThan(*prevVersion) {
+		lg := a.s.Logger()
+		if lg != nil {
+			lg.Info("Cluster version downgrade detected, forcing snapshot",
+				zap.String("prev-cluster-version", prevVersion.String()),
+				zap.String("new-cluster-version", newVersion.String()),
+			)
+		}
+		a.s.forceSnapshot = true
+	}
 }
 
 func (a *applierV3backend) ClusterMemberAttrSet(r *membershippb.ClusterMemberAttrSetRequest, shouldApplyV3 membership.ShouldApplyV3) {

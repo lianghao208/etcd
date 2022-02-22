@@ -21,15 +21,17 @@ import (
 
 // server-side error
 var (
-	ErrGRPCEmptyKey      = status.New(codes.InvalidArgument, "etcdserver: key is not provided").Err()
-	ErrGRPCKeyNotFound   = status.New(codes.InvalidArgument, "etcdserver: key not found").Err()
-	ErrGRPCValueProvided = status.New(codes.InvalidArgument, "etcdserver: value is provided").Err()
-	ErrGRPCLeaseProvided = status.New(codes.InvalidArgument, "etcdserver: lease is provided").Err()
-	ErrGRPCTooManyOps    = status.New(codes.InvalidArgument, "etcdserver: too many operations in txn request").Err()
-	ErrGRPCDuplicateKey  = status.New(codes.InvalidArgument, "etcdserver: duplicate key given in txn request").Err()
-	ErrGRPCCompacted     = status.New(codes.OutOfRange, "etcdserver: mvcc: required revision has been compacted").Err()
-	ErrGRPCFutureRev     = status.New(codes.OutOfRange, "etcdserver: mvcc: required revision is a future revision").Err()
-	ErrGRPCNoSpace       = status.New(codes.ResourceExhausted, "etcdserver: mvcc: database space exceeded").Err()
+	ErrGRPCEmptyKey                = status.New(codes.InvalidArgument, "etcdserver: key is not provided").Err()
+	ErrGRPCKeyNotFound             = status.New(codes.InvalidArgument, "etcdserver: key not found").Err()
+	ErrGRPCValueProvided           = status.New(codes.InvalidArgument, "etcdserver: value is provided").Err()
+	ErrGRPCLeaseProvided           = status.New(codes.InvalidArgument, "etcdserver: lease is provided").Err()
+	ErrGRPCTooManyOps              = status.New(codes.InvalidArgument, "etcdserver: too many operations in txn request").Err()
+	ErrGRPCDuplicateKey            = status.New(codes.InvalidArgument, "etcdserver: duplicate key given in txn request").Err()
+	ErrGRPCInvalidClientAPIVersion = status.New(codes.InvalidArgument, "etcdserver: invalid client api version").Err()
+	ErrGRPCInvalidSortOption       = status.New(codes.InvalidArgument, "etcdserver: invalid sort option").Err()
+	ErrGRPCCompacted               = status.New(codes.OutOfRange, "etcdserver: mvcc: required revision has been compacted").Err()
+	ErrGRPCFutureRev               = status.New(codes.OutOfRange, "etcdserver: mvcc: required revision is a future revision").Err()
+	ErrGRPCNoSpace                 = status.New(codes.ResourceExhausted, "etcdserver: mvcc: database space exceeded").Err()
 
 	ErrGRPCLeaseNotFound    = status.New(codes.NotFound, "etcdserver: requested lease not found").Err()
 	ErrGRPCLeaseExist       = status.New(codes.FailedPrecondition, "etcdserver: lease already exists").Err()
@@ -77,7 +79,7 @@ var (
 	ErrGRPCTimeoutDueToConnectionLost = status.New(codes.Unavailable, "etcdserver: request timed out, possibly due to connection lost").Err()
 	ErrGRPCUnhealthy                  = status.New(codes.Unavailable, "etcdserver: unhealthy cluster").Err()
 	ErrGRPCCorrupt                    = status.New(codes.DataLoss, "etcdserver: corrupt cluster").Err()
-	ErrGPRCNotSupportedForLearner     = status.New(codes.FailedPrecondition, "etcdserver: rpc not supported for learner").Err()
+	ErrGRPCNotSupportedForLearner     = status.New(codes.FailedPrecondition, "etcdserver: rpc not supported for learner").Err()
 	ErrGRPCBadLeaderTransferee        = status.New(codes.FailedPrecondition, "etcdserver: bad leader transferee").Err()
 
 	ErrGRPCWrongDowngradeVersionFormat   = status.New(codes.InvalidArgument, "etcdserver: wrong downgrade target version format").Err()
@@ -95,11 +97,12 @@ var (
 		ErrorDesc(ErrGRPCValueProvided): ErrGRPCValueProvided,
 		ErrorDesc(ErrGRPCLeaseProvided): ErrGRPCLeaseProvided,
 
-		ErrorDesc(ErrGRPCTooManyOps):   ErrGRPCTooManyOps,
-		ErrorDesc(ErrGRPCDuplicateKey): ErrGRPCDuplicateKey,
-		ErrorDesc(ErrGRPCCompacted):    ErrGRPCCompacted,
-		ErrorDesc(ErrGRPCFutureRev):    ErrGRPCFutureRev,
-		ErrorDesc(ErrGRPCNoSpace):      ErrGRPCNoSpace,
+		ErrorDesc(ErrGRPCTooManyOps):        ErrGRPCTooManyOps,
+		ErrorDesc(ErrGRPCDuplicateKey):      ErrGRPCDuplicateKey,
+		ErrorDesc(ErrGRPCInvalidSortOption): ErrGRPCInvalidSortOption,
+		ErrorDesc(ErrGRPCCompacted):         ErrGRPCCompacted,
+		ErrorDesc(ErrGRPCFutureRev):         ErrGRPCFutureRev,
+		ErrorDesc(ErrGRPCNoSpace):           ErrGRPCNoSpace,
 
 		ErrorDesc(ErrGRPCLeaseNotFound):    ErrGRPCLeaseNotFound,
 		ErrorDesc(ErrGRPCLeaseExist):       ErrGRPCLeaseExist,
@@ -144,7 +147,7 @@ var (
 		ErrorDesc(ErrGRPCTimeoutDueToConnectionLost): ErrGRPCTimeoutDueToConnectionLost,
 		ErrorDesc(ErrGRPCUnhealthy):                  ErrGRPCUnhealthy,
 		ErrorDesc(ErrGRPCCorrupt):                    ErrGRPCCorrupt,
-		ErrorDesc(ErrGPRCNotSupportedForLearner):     ErrGPRCNotSupportedForLearner,
+		ErrorDesc(ErrGRPCNotSupportedForLearner):     ErrGRPCNotSupportedForLearner,
 		ErrorDesc(ErrGRPCBadLeaderTransferee):        ErrGRPCBadLeaderTransferee,
 
 		ErrorDesc(ErrGRPCClusterVersionUnavailable):     ErrGRPCClusterVersionUnavailable,
@@ -157,15 +160,16 @@ var (
 
 // client-side error
 var (
-	ErrEmptyKey      = Error(ErrGRPCEmptyKey)
-	ErrKeyNotFound   = Error(ErrGRPCKeyNotFound)
-	ErrValueProvided = Error(ErrGRPCValueProvided)
-	ErrLeaseProvided = Error(ErrGRPCLeaseProvided)
-	ErrTooManyOps    = Error(ErrGRPCTooManyOps)
-	ErrDuplicateKey  = Error(ErrGRPCDuplicateKey)
-	ErrCompacted     = Error(ErrGRPCCompacted)
-	ErrFutureRev     = Error(ErrGRPCFutureRev)
-	ErrNoSpace       = Error(ErrGRPCNoSpace)
+	ErrEmptyKey          = Error(ErrGRPCEmptyKey)
+	ErrKeyNotFound       = Error(ErrGRPCKeyNotFound)
+	ErrValueProvided     = Error(ErrGRPCValueProvided)
+	ErrLeaseProvided     = Error(ErrGRPCLeaseProvided)
+	ErrTooManyOps        = Error(ErrGRPCTooManyOps)
+	ErrDuplicateKey      = Error(ErrGRPCDuplicateKey)
+	ErrInvalidSortOption = Error(ErrGRPCInvalidSortOption)
+	ErrCompacted         = Error(ErrGRPCCompacted)
+	ErrFutureRev         = Error(ErrGRPCFutureRev)
+	ErrNoSpace           = Error(ErrGRPCNoSpace)
 
 	ErrLeaseNotFound    = Error(ErrGRPCLeaseNotFound)
 	ErrLeaseExist       = Error(ErrGRPCLeaseExist)

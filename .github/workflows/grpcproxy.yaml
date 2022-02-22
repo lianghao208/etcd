@@ -7,20 +7,25 @@ jobs:
       fail-fast: true
       matrix:
         target:
-        - linux-amd64-grpcproxy
+        - linux-amd64-grpcproxy-integration
+        - linux-amd64-grpcproxy-e2e
     steps:
     - uses: actions/checkout@v2
     - uses: actions/setup-go@v2
       with:
-        go-version: "1.17.2"
+        go-version: "1.17.6"
     - run: date
     - env:
         TARGET: ${{ matrix.target }}
       run: |
         echo "${TARGET}"
         case "${TARGET}" in
-          linux-amd64-grpcproxy)
-            PASSES='build grpcproxy'  CPU='4' COVER='false' RACE='true' ./test.sh 2>&1 | tee test.log
+          linux-amd64-grpcproxy-integration)
+            PASSES='build grpcproxy_integration'  CPU='4' COVER='false' RACE='true' ./scripts/test.sh 2>&1 | tee test.log
+            ! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
+            ;;
+          linux-amd64-grpcproxy-e2e)
+            PASSES='build grpcproxy_e2e'  CPU='4' COVER='false' RACE='true' ./scripts/test.sh 2>&1 | tee test.log
             ! egrep "(--- FAIL:|FAIL:|DATA RACE|panic: test timed out|appears to have leaked)" -B50 -A10 test.log
             ;;
           *)

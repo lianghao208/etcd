@@ -104,13 +104,37 @@ Clustering:
   --advertise-client-urls 'http://localhost:2379'
     List of this member's client URLs to advertise to the public.
     The client URLs advertised should be accessible to machines that talk to etcd cluster. etcd client libraries parse these URLs to connect to the cluster.
+  --enable-v2-discovery 'true'
+    Enable to bootstrap the cluster using v2 discovery. Will be deprecated in v3.7, and be decommissioned in v3.8.
   --discovery ''
     Discovery URL used to bootstrap the cluster.
+  --discovery-dial-timeout '2s'
+    V3 discovery: dial timeout for client connections.
+  --discovery-request-timeout '5s'
+    V3 discovery: timeout for discovery requests (excluding dial timeout).
+  --discovery-keepalive-time '2s'
+    V3 discovery: keepalive time for client connections.
+  --discovery-keepalive-timeout '6s'
+    V3 discovery: keepalive timeout for client connections.
+  --discovery-insecure-transport 'true'
+    V3 discovery: disable transport security for client connections.
+  --discovery-insecure-skip-tls-verify 'false'
+    V3 discovery: skip server certificate verification (CAUTION: this option should be enabled only for testing purposes).
+  --discovery-cert ''
+    V3 discovery: identify secure client using this TLS certificate file.
+  --discovery-key ''
+    V3 discovery: identify secure client using this TLS key file.
+  --discovery-cacert ''
+    V3 discovery: verify certificates of TLS-enabled secure servers using this CA bundle.
+  --discovery-user ''
+    V3 discovery: username[:password] for authentication (prompt if password is not supplied).
+  --discovery-password ''
+    V3 discovery: password for authentication (if this option is used, --user option shouldn't include password).
   --discovery-fallback 'proxy'
     Expected behavior ('exit' or 'proxy') when discovery services fails.
     "proxy" supports v2 API only.
   --discovery-proxy ''
-    HTTP proxy to use for traffic to discovery service.
+    HTTP proxy to use for traffic to discovery service. Will be deprecated in v3.7, and be decommissioned in v3.8.
   --discovery-srv ''
     DNS srv domain used to bootstrap the cluster.
   --discovery-srv-name ''
@@ -123,8 +147,6 @@ Clustering:
     Auto compaction retention length. 0 means disable auto compaction.
   --auto-compaction-mode 'periodic'
     Interpret 'auto-compaction-retention' one of: periodic|revision. 'periodic' for duration based retention, defaulting to hours if no time unit is provided (e.g. '5m'). 'revision' for revision number based retention.
-  --enable-v2 '` + strconv.FormatBool(embed.DefaultEnableV2) + `'
-    Accept etcd V2 client requests. Deprecated and to be decommissioned in v3.6.
   --v2-deprecation '` + string(cconfig.V2_DEPR_DEFAULT) + `'
     Phase of v2store deprecation. Allows to opt-in for higher compatibility mode.
     Supported values:
@@ -234,8 +256,6 @@ Experimental feature:
     Enable to check data corruption before serving any client/peer traffic.
   --experimental-corrupt-check-time '0s'
     Duration of time between cluster corruption check passes.
-  --experimental-enable-v2v3 ''
-    Serve v2 requests through the v3 backend under a given prefix. Deprecated and to be decommissioned in v3.6.
   --experimental-enable-lease-checkpoint 'false'
     ExperimentalEnableLeaseCheckpoint enables primary lessor to persist lease remainingTTL to prevent indefinite auto-renewal of long lived leases.
   --experimental-compaction-batch-limit 1000
@@ -254,6 +274,8 @@ Experimental feature:
     Set time duration after which a warning is generated if a unary request takes more than this duration.
   --experimental-max-learners '1'
     Set the max number of learner members allowed in the cluster membership.
+  --experimental-wait-cluster-ready-timeout '5s'
+    Set the maximum time duration to wait for the cluster to be ready.
 
 Unsafe feature:
   --force-new-cluster 'false'

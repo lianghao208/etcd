@@ -1,4 +1,4 @@
-FROM fedora:28
+FROM fedora:35
 
 RUN dnf check-update || true \
   && dnf install --assumeyes \
@@ -13,7 +13,7 @@ RUN dnf check-update || true \
 ENV GOROOT /usr/local/go
 ENV GOPATH /go
 ENV PATH ${GOPATH}/bin:${GOROOT}/bin:${PATH}
-ENV GO_VERSION 1.14.3
+ENV GO_VERSION 1.17.6
 ENV GO_DOWNLOAD_URL https://storage.googleapis.com/golang
 RUN rm -rf ${GOROOT} \
   && curl -s ${GO_DOWNLOAD_URL}/go${GO_VERSION}.linux-amd64.tar.gz | tar -v -C /usr/local/ -xz \
@@ -26,11 +26,11 @@ ADD ./tests/functional/functional.yaml /functional.yaml
 
 RUN go get -v go.etcd.io/gofail \
   && pushd ${GOPATH}/src/go.etcd.io/etcd \
-  && GO_BUILD_FLAGS="-v" ./build.sh \
+  && GO_BUILD_FLAGS="-v" ./scripts/build.sh \
   && mkdir -p /bin \
   && cp ./bin/etcd /bin/etcd \
   && cp ./bin/etcdctl /bin/etcdctl \
-  && GO_BUILD_FLAGS="-v" FAILPOINTS=1 ./build.sh \
+  && GO_BUILD_FLAGS="-v" FAILPOINTS=1 ./scripts/build.sh \
   && cp ./bin/etcd /bin/etcd-failpoints \
   && ./tests/functional/build \
   && cp ./bin/etcd-agent /bin/etcd-agent \

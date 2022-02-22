@@ -15,6 +15,7 @@
 package embed
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -36,6 +37,7 @@ import (
 	"go.etcd.io/etcd/server/v3/etcdserver"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/membership"
 	"go.etcd.io/etcd/server/v3/etcdserver/api/v3compactor"
+	"go.etcd.io/etcd/server/v3/etcdserver/api/v3discovery"
 
 	bolt "go.etcd.io/bbolt"
 	"go.uber.org/multierr"
@@ -60,6 +62,12 @@ const (
 	DefaultGRPCKeepAliveInterval       = 2 * time.Hour
 	DefaultGRPCKeepAliveTimeout        = 20 * time.Second
 	DefaultDowngradeCheckTime          = 5 * time.Second
+	DefaultWaitClusterReadyTimeout     = 5 * time.Second
+
+	DefaultDiscoveryDialTimeout      = 2 * time.Second
+	DefaultDiscoveryRequestTimeOut   = 5 * time.Second
+	DefaultDiscoveryKeepAliveTime    = 2 * time.Second
+	DefaultDiscoveryKeepAliveTimeOut = 6 * time.Second
 
 	DefaultListenPeerURLs   = "http://localhost:2380"
 	DefaultListenClientURLs = "http://localhost:2379"
@@ -86,9 +94,8 @@ const (
 	// DefaultStrictReconfigCheck is the default value for "--strict-reconfig-check" flag.
 	// It's enabled by default.
 	DefaultStrictReconfigCheck = true
-	// DefaultEnableV2 is the default value for "--enable-v2" flag.
-	// v2 API is disabled by default.
-	DefaultEnableV2 = false
+
+	DefaultEnableV2Discovery = true
 
 	// maxElectionMs specifies the maximum value of election timeout.
 	// More details are listed in ../Documentation/tuning.md#time-parameters.
@@ -219,15 +226,15 @@ type Config struct {
 	DNSCluster            string `json:"discovery-srv"`
 	DNSClusterServiceName string `json:"discovery-srv-name"`
 	Dproxy                string `json:"discovery-proxy"`
-	Durl                  string `json:"discovery"`
-	InitialCluster        string `json:"initial-cluster"`
-	InitialClusterToken   string `json:"initial-cluster-token"`
-	StrictReconfigCheck   bool   `json:"strict-reconfig-check"`
 
-	// EnableV2 exposes the deprecated V2 API surface.
-	// TODO: Delete in 3.6 (https://github.com/etcd-io/etcd/issues/12913)
-	// Deprecated in 3.5.
-	EnableV2 bool `json:"enable-v2"`
+	EnableV2Discovery bool                        `json:"enable-v2-discovery"`
+	Durl              string                      `json:"discovery"`
+	DiscoveryCfg      v3discovery.DiscoveryConfig `json:"discovery-config"`
+
+	InitialCluster                      string        `json:"initial-cluster"`
+	InitialClusterToken                 string        `json:"initial-cluster-token"`
+	StrictReconfigCheck                 bool          `json:"strict-reconfig-check"`
+	ExperimentalWaitClusterReadyTimeout time.Duration `json:"wait-cluster-ready-timeout"`
 
 	// AutoCompactionMode is either 'periodic' or 'revision'.
 	AutoCompactionMode string `json:"auto-compaction-mode"`
@@ -311,10 +318,6 @@ type Config struct {
 
 	ExperimentalInitialCorruptCheck bool          `json:"experimental-initial-corrupt-check"`
 	ExperimentalCorruptCheckTime    time.Duration `json:"experimental-corrupt-check-time"`
-	// ExperimentalEnableV2V3 configures URLs that expose deprecated V2 API working on V3 store.
-	// Deprecated in v3.5.
-	// TODO: Delete in v3.6 (https://github.com/etcd-io/etcd/issues/12913)
-	ExperimentalEnableV2V3 string `json:"experimental-enable-v2v3"`
 	// ExperimentalEnableLeaseCheckpoint enables leader to send regular checkpoints to other members to prevent reset of remaining TTL on leader change.
 	ExperimentalEnableLeaseCheckpoint bool `json:"experimental-enable-lease-checkpoint"`
 	// ExperimentalEnableLeaseCheckpointPersist enables persisting remainingTTL to prevent indefinite auto-renewal of long lived leases. Always enabled in v3.6. Should be used to ensure smooth upgrade from v3.5 clusters with this feature enabled.
@@ -483,12 +486,12 @@ func NewConfig() *Config {
 		APUrls: []url.URL{*apurl},
 		ACUrls: []url.URL{*acurl},
 
-		ClusterState:        ClusterStateFlagNew,
-		InitialClusterToken: "etcd-cluster",
+		ClusterState:                        ClusterStateFlagNew,
+		InitialClusterToken:                 "etcd-cluster",
+		ExperimentalWaitClusterReadyTimeout: DefaultWaitClusterReadyTimeout,
 
 		StrictReconfigCheck: DefaultStrictReconfigCheck,
 		Metrics:             "basic",
-		EnableV2:            DefaultEnableV2,
 
 		CORS:          map[string]struct{}{"*": {}},
 		HostWhitelist: map[string]struct{}{"*": {}},
@@ -514,6 +517,14 @@ func NewConfig() *Config {
 		ExperimentalMaxLearners:                  membership.DefaultMaxLearners,
 
 		V2Deprecation: config.V2_DEPR_DEFAULT,
+
+		EnableV2Discovery: DefaultEnableV2Discovery,
+		DiscoveryCfg: v3discovery.DiscoveryConfig{
+			DialTimeout:      DefaultDiscoveryDialTimeout,
+			RequestTimeOut:   DefaultDiscoveryRequestTimeOut,
+			KeepAliveTime:    DefaultDiscoveryKeepAliveTime,
+			KeepAliveTimeout: DefaultDiscoveryKeepAliveTimeOut,
+		},
 	}
 	cfg.InitialCluster = cfg.InitialClusterFromName(cfg.Name)
 	return cfg
@@ -675,6 +686,22 @@ func (cfg *Config) Validate() error {
 
 	if nSet > 1 {
 		return ErrConflictBootstrapFlags
+	}
+
+	// Check if both v2 discovery and v3 discovery flags are passed.
+	v2discoveryFlagsExist := cfg.Dproxy != ""
+	v3discoveryFlagsExist := cfg.DiscoveryCfg.CertFile != "" ||
+		cfg.DiscoveryCfg.KeyFile != "" ||
+		cfg.DiscoveryCfg.TrustedCAFile != "" ||
+		cfg.DiscoveryCfg.User != "" ||
+		cfg.DiscoveryCfg.Password != ""
+	if cfg.EnableV2Discovery && v3discoveryFlagsExist {
+		return errors.New("v2 discovery is enabled, but some v3 discovery " +
+			"settings (discovery-cert, discovery-key, discovery-cacert, " +
+			"discovery-user, discovery-password) are set")
+	}
+	if !cfg.EnableV2Discovery && v2discoveryFlagsExist {
+		return errors.New("v3 discovery is enabled, but --discovery-proxy is set")
 	}
 
 	if cfg.TickMs == 0 {

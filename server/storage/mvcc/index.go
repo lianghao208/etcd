@@ -218,8 +218,8 @@ func (ti *treeIndex) Compact(rev int64) map[revision]struct{} {
 
 	clone.Ascend(func(item btree.Item) bool {
 		keyi := item.(*keyIndex)
-		//Lock is needed here to prevent modification to the keyIndex while
-		//compaction is going on or revision added to empty before deletion
+		// Lock is needed here to prevent modification to the keyIndex while
+		// compaction is going on or revision added to empty before deletion
 		ti.Lock()
 		keyi.compact(ti.lg, rev, available)
 		if keyi.isEmpty() {
@@ -257,8 +257,14 @@ func (ti *treeIndex) Equal(bi index) bool {
 	equal := true
 
 	ti.tree.Ascend(func(item btree.Item) bool {
-		aki := item.(*keyIndex)
-		bki := b.tree.Get(item).(*keyIndex)
+		var aki, bki *keyIndex
+		var ok bool
+		if aki, ok = item.(*keyIndex); !ok {
+			return false
+		}
+		if bki, ok = b.tree.Get(item).(*keyIndex); !ok {
+			return false
+		}
 		if !aki.equal(bki) {
 			equal = false
 			return false

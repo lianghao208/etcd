@@ -54,6 +54,7 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 			c.GetLogger().Debug(
 				"retrying of unary invoker",
 				zap.String("target", cc.Target()),
+				zap.String("method", method),
 				zap.Uint("attempt", attempt),
 			)
 			lastErr = invoker(ctx, method, req, reply, cc, grpcOpts...)
@@ -63,6 +64,7 @@ func (c *Client) unaryClientInterceptor(optFuncs ...retryOption) grpc.UnaryClien
 			c.GetLogger().Warn(
 				"retrying of unary invoker failed",
 				zap.String("target", cc.Target()),
+				zap.String("method", method),
 				zap.Uint("attempt", attempt),
 				zap.Error(lastErr),
 			)
@@ -322,7 +324,7 @@ func isSafeRetry(c *Client, err error, callOpts *options) bool {
 	// customer provides mix of learners (not yet voters) and voters with an
 	// expectation to pick voter in the next attempt.
 	// TODO: Ideally client should be 'aware' which endpoint represents: leader/voter/learner with high probability.
-	if errors.Is(err, rpctypes.ErrGPRCNotSupportedForLearner) && len(c.Endpoints()) > 1 {
+	if errors.Is(err, rpctypes.ErrGRPCNotSupportedForLearner) && len(c.Endpoints()) > 1 {
 		return true
 	}
 

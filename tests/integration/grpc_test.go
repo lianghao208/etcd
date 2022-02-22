@@ -102,18 +102,19 @@ func TestAuthority(t *testing.T) {
 					UseIP:  tc.useTCP,
 				}
 				cfg, tlsConfig := setupTLS(t, tc.useTLS, cfg)
-				clus := integration.NewClusterV3(t, &cfg)
+				clus := integration.NewCluster(t, &cfg)
 				defer clus.Terminate(t)
 
 				kv := setupClient(t, tc.clientURLPattern, clus, tlsConfig)
 				defer kv.Close()
 
+				putRequestMethod := "/etcdserverpb.KV/Put"
 				_, err := kv.Put(context.TODO(), "foo", "bar")
 				if err != nil {
 					t.Fatal(err)
 				}
 
-				assertAuthority(t, templateAuthority(t, tc.expectAuthorityPattern, clus.Members[0]), clus)
+				assertAuthority(t, templateAuthority(t, tc.expectAuthorityPattern, clus.Members[0]), clus, putRequestMethod)
 			})
 		}
 	}
@@ -132,7 +133,7 @@ func setupTLS(t *testing.T, useTLS bool, cfg integration.ClusterConfig) (integra
 	return cfg, nil
 }
 
-func setupClient(t *testing.T, endpointPattern string, clus *integration.ClusterV3, tlsConfig *tls.Config) *clientv3.Client {
+func setupClient(t *testing.T, endpointPattern string, clus *integration.Cluster, tlsConfig *tls.Config) *clientv3.Client {
 	t.Helper()
 	endpoints := templateEndpoints(t, endpointPattern, clus)
 	kv, err := clientv3.New(clientv3.Config{
@@ -147,7 +148,7 @@ func setupClient(t *testing.T, endpointPattern string, clus *integration.Cluster
 	return kv
 }
 
-func templateEndpoints(t *testing.T, pattern string, clus *integration.ClusterV3) []string {
+func templateEndpoints(t *testing.T, pattern string, clus *integration.Cluster) []string {
 	t.Helper()
 	endpoints := []string{}
 	for _, m := range clus.Members {
@@ -181,11 +182,14 @@ func templateAuthority(t *testing.T, pattern string, m *integration.Member) stri
 	return authority
 }
 
-func assertAuthority(t *testing.T, expectedAuthority string, clus *integration.ClusterV3) {
+func assertAuthority(t *testing.T, expectedAuthority string, clus *integration.Cluster, filterMethod string) {
 	t.Helper()
 	requestsFound := 0
 	for _, m := range clus.Members {
 		for _, r := range m.RecordedRequests() {
+			if filterMethod != "" && r.FullMethod != filterMethod {
+				continue
+			}
 			requestsFound++
 			if r.Authority != expectedAuthority {
 				t.Errorf("Got unexpected authority header, member: %q, request: %q, got authority: %q, expected %q", m.Name, r.FullMethod, r.Authority, expectedAuthority)

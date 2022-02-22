@@ -17,7 +17,6 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -46,17 +45,17 @@ func TestDowngradeUpgrade(t *testing.T) {
 	validateVersion(t, epc, version.Versions{Cluster: currentVersionStr, Server: currentVersionStr})
 
 	downgradeEnable(t, epc, lastVersion)
+	expectLog(t, epc, "The server is ready to downgrade")
 	validateVersion(t, epc, version.Versions{Cluster: lastVersionStr, Server: currentVersionStr})
 
 	stopEtcd(t, epc)
 	epc = startEtcd(t, lastReleaseBinary, dataDirPath)
-	validateVersion(t, epc, version.Versions{Cluster: lastVersionStr, Server: lastVersionStr})
 	expectLog(t, epc, "the cluster has been downgraded")
+	validateVersion(t, epc, version.Versions{Cluster: lastVersionStr, Server: lastVersionStr})
 
 	stopEtcd(t, epc)
 	epc = startEtcd(t, currentEtcdBinary, dataDirPath)
-	// TODO: Verify cluster version after upgrade when we fix cluster version set timeout
-	validateVersion(t, epc, version.Versions{Server: currentVersionStr})
+	validateVersion(t, epc, version.Versions{Cluster: currentVersionStr, Server: currentVersionStr})
 }
 
 func startEtcd(t *testing.T, execPath, dataDirPath string) *e2e.EtcdProcessCluster {
@@ -66,8 +65,6 @@ func startEtcd(t *testing.T, execPath, dataDirPath string) *e2e.EtcdProcessClust
 		ClusterSize:  1,
 		InitialToken: "new",
 		KeepDataDir:  true,
-		// TODO: REMOVE snapshot override when snapshotting is automated after lowering storage versiont l
-		SnapshotCount: 5,
 	})
 	if err != nil {
 		t.Fatalf("could not start etcd process cluster (%v)", err)
@@ -75,16 +72,6 @@ func startEtcd(t *testing.T, execPath, dataDirPath string) *e2e.EtcdProcessClust
 	t.Cleanup(func() {
 		if errC := epc.Close(); errC != nil {
 			t.Fatalf("error closing etcd processes (%v)", errC)
-		}
-	})
-
-	prefixArgs := []string{e2e.CtlBinPath, "--endpoints", strings.Join(epc.EndpointsV3(), ",")}
-	t.Log("Write keys to ensure wal snapshot is created so cluster version set is snapshotted")
-	e2e.ExecuteWithTimeout(t, 20*time.Second, func() {
-		for i := 0; i < 10; i++ {
-			if err := e2e.SpawnWithExpect(append(prefixArgs, "put", fmt.Sprintf("%d", i), "value"), "OK"); err != nil {
-				t.Fatal(err)
-			}
 		}
 	})
 	return epc
@@ -100,11 +87,12 @@ func downgradeEnable(t *testing.T, epc *e2e.EtcdProcessCluster, ver semver.Versi
 	}
 	defer c.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	// TODO: Fix request always timing out even thou it succeeds
-	c.Downgrade(ctx, 1, ver.String())
+	_, err = c.Downgrade(ctx, 1, ver.String())
+	if err != nil {
+		t.Fatal(err)
+	}
 	cancel()
 
-	expectLog(t, epc, "The server is ready to downgrade")
 }
 
 func stopEtcd(t *testing.T, epc *e2e.EtcdProcessCluster) {
